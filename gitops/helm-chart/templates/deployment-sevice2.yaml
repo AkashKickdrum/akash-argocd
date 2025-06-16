@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service2
+  template:
+    metadata:
+      labels:
+        app: service2
+    spec:
+      containers:
+        - name: service2
+          image: "{{ .Values.service2.repository }}:{{ .Values.service2.tag }}"
+          ports:
+            - containerPort: 8081  

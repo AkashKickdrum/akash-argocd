@@ -1,0 +1,9 @@
+frontend:
+  repository: your-dockerhub-user/frontend
+  tag: "0"
+service1:
+  repository: your-dockerhub-user/service1
+  tag: "0"
+service2:
+  repository: your-dockerhub-user/service2
+  tag: "0"

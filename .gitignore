@@ -1,0 +1,17 @@
+# Terraform
+*.tfstate
+*.tfstate.backup
+.terraform/
+
+# Gradle & builds
+**/build/
+**/*.class
+
+# Node / React
+src/frontend/node_modules/
+
+# Docker
+*.tar
+
+# Credentials
+.env

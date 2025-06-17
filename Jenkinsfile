@@ -6,7 +6,7 @@ pipeline {
   }
 
   environment {
-    GITHUB_CREDS = 'github-creds'    // your GitHub PAT credential for pushing values.yaml
+    GITHUB_CREDS = 'github-creds'    // your GitHub PAT for pushing values.yaml
   }
 
   stages {
@@ -54,8 +54,32 @@ pipeline {
       parallel {
         stage('OWASP Dependency-Check') {
           steps {
-            sh 'dependency-check.sh --project service1 --scan src/backend1'
-            sh 'dependency-check.sh --project service2 --scan src/backend2'
+            script {
+              // prepare output dirs
+              sh 'mkdir -p reports/owasp-service1 reports/owasp-service2'
+              // scan service1
+              sh '''
+                docker run --rm \
+                  -v "$PWD/src/backend1":/src \
+                  -v "$PWD/reports/owasp-service1":/report \
+                  owasp/dependency-check \
+                  --project service1 \
+                  --scan /src \
+                  --format "ALL" \
+                  --out /report
+              '''
+              // scan service2
+              sh '''
+                docker run --rm \
+                  -v "$PWD/src/backend2":/src \
+                  -v "$PWD/reports/owasp-service2":/report \
+                  owasp/dependency-check \
+                  --project service2 \
+                  --scan /src \
+                  --format "ALL" \
+                  --out /report
+              '''
+            }
           }
         }
         stage('Unit Tests') {

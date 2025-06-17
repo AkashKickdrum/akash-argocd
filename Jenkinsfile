@@ -1,21 +1,21 @@
 pipeline {
   agent any
 
+  // Prevent Declarative from doing an implicit checkout at the top
+  options {
+    skipDefaultCheckout()
+  }
+
   environment {
-    // SonarQube server in Jenkins
-    SONARQ = 'SonarQube'
-    // GitHub PAT credential ID for pushing values.yaml
+    SONARQ     = 'SonarQube'
     GITHUB_CREDS = 'github-creds'
   }
 
   stages {
     stage('Checkout') {
       steps {
-        git(
-          url:           'https://github.com/AkashKickdrum/akash-argocd.git',
-          branch:        'main',
-          credentialsId: GITHUB_CREDS
-        )
+        // This will use the branch (main) that Multibranch discovered
+        checkout scm
       }
     }
 
@@ -69,19 +69,19 @@ pipeline {
       steps {
         script {
           def tag = env.BUILD_NUMBER
-          sh "docker build --no-cache -t ${env.DOCKERHUB_USR}/frontend:${tag} src/frontend"
-          sh "docker build --no-cache -t ${env.DOCKERHUB_USR}/service1:${tag} src/backend1"
-          sh "docker build --no-cache -t ${env.DOCKERHUB_USR}/service2:${tag} src/backend2"
-          sh "trivy image ${env.DOCKERHUB_USR}/frontend:${tag}  > trivy-frontend.txt"
-          sh "trivy image ${env.DOCKERHUB_USR}/service1:${tag}  > trivy-service1.txt"
-          sh "trivy image ${env.DOCKERHUB_USR}/service2:${tag}  > trivy-service2.txt"
+          sh "docker build --no-cache -t myhub/frontend:${tag} src/frontend"
+          sh "docker build --no-cache -t myhub/service1:${tag} src/backend1"
+          sh "docker build --no-cache -t myhub/service2:${tag} src/backend2"
+          sh "trivy image myhub/frontend:${tag}  > trivy-frontend.txt"
+          sh "trivy image myhub/service1:${tag}  > trivy-service1.txt"
+          sh "trivy image myhub/service2:${tag}  > trivy-service2.txt"
         }
       }
     }
 
     stage('Push & Update GitOps') {
       steps {
-        // Inject Docker Hub creds for login & push
+        // Docker Hub login & push
         withCredentials([usernamePassword(
           credentialsId: 'dockerhub-creds',
           usernameVariable: 'DOCKERHUB_USR',
@@ -117,8 +117,8 @@ pipeline {
     success {
       emailext(
         to: 'sathwik.shetty@kickdrumtech.com,manav.verma@kickdrumtech.com,yashnitin.thakre@kickdrumtech.com,akashkumar.verma@kickdrumtech.com',
-        subject: "Build SUCCESS #${env.BUILD_NUMBER}",
-        body:    "✅ Build #${env.BUILD_NUMBER} succeeded!\nConsole: ${env.BUILD_URL}",
+        subject: "Build SUCCESS #${BUILD_NUMBER}",
+        body:    "✅ Build #${BUILD_NUMBER} succeeded!\nConsole: ${BUILD_URL}",
         attachmentsPattern: 'trivy-*.txt'
       )
     }

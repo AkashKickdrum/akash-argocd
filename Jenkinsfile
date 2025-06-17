@@ -2,9 +2,12 @@ pipeline {
   agent any
 
   environment {
-    DOCKERHUB = credentials('dockerhub-creds')   // id of your Docker Hub creds in Jenkins
-    GIT_SSH   = 'git-ssh'                         // id of your SSH key for GitOps repo
-    SONARQ    = 'SonarQube'                       // name of your SonarQube server in Jenkins config
+    // binding your Docker Hub creds to DOCKERHUB_USR / DOCKERHUB_PSW
+    DOCKERHUB_USR = credentials('dockerhub-creds_USR')
+    DOCKERHUB_PSW = credentials('dockerhub-creds_PSW')
+
+    // SonarQube server ID in Jenkins
+    SONARQ = 'SonarQube'
   }
 
   stages {
@@ -13,9 +16,15 @@ pipeline {
     }
 
     stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    stage('Build Frontend') {
       steps {
-        git url: 'git@github.com:AkashKickdrum/akash-argocd.git',
-            credentialsId: GIT_SSH
+        dir('src/frontend') {
+          sh 'npm install'
+          sh 'npm run build'
+        }
       }
     }
 
@@ -41,85 +50,71 @@ pipeline {
     stage('Static Code Analysis') {
       steps {
         withSonarQubeEnv(SONARQ) {
-          sh 'sonar-scanner -Dsonar.projectKey=backend1 -Dsonar.sources=src/backend1'
-          sh 'sonar-scanner -Dsonar.projectKey=backend2 -Dsonar.sources=src/backend2'
+          sh 'sonar-scanner -Dsonar.projectKey=service1 -Dsonar.sources=src/backend1'
+          sh 'sonar-scanner -Dsonar.projectKey=service2 -Dsonar.sources=src/backend2'
         }
       }
     }
 
-    stage('OWASP Dependency-Check') {
-      steps {
-        sh 'dependency-check.sh --project service1 --scan src/backend1'
-        sh 'dependency-check.sh --project service2 --scan src/backend2'
-      }
-    }
-
-    stage('Unit Tests') {
-      steps {
-        dir('src/backend1') { sh './gradlew test' }
-        dir('src/backend2') { sh './gradlew test' }
-      }
-    }
-
-    stage('Docker Build & Tag') {
-      steps {
-        script {
-          def tag = "${env.BUILD_NUMBER}"
-          sh "docker build --no-cache -t ${DOCKERHUB_USR}/frontend:${tag} src/frontend"
-          sh "docker build --no-cache -t ${DOCKERHUB_USR}/service1:${tag} src/backend1"
-          sh "docker build --no-cache -t ${DOCKERHUB_USR}/service2:${tag} src/backend2"
+    stage('Security Scans & Tests') {
+      parallel {
+        stage('OWASP & Unit Tests') {
+          steps {
+            sh 'dependency-check.sh --project service1 --scan src/backend1'
+            sh 'dependency-check.sh --project service2 --scan src/backend2'
+            dir('src/backend1') { sh './gradlew test' }
+            dir('src/backend2') { sh './gradlew test' }
+          }
+        }
+        stage('Trivy Scans') {
+          steps {
+            script {
+              def tag = env.BUILD_NUMBER
+              sh "docker build --no-cache -t myhub/frontend:${tag} src/frontend"
+              sh "docker build --no-cache -t myhub/service1:${tag} src/backend1"
+              sh "docker build --no-cache -t myhub/service2:${tag} src/backend2"
+              sh "trivy image myhub/frontend:${tag} > trivy-frontend.txt"
+              sh "trivy image myhub/service1:${tag}  > trivy-service1.txt"
+              sh "trivy image myhub/service2:${tag}  > trivy-service2.txt"
+            }
+          }
         }
       }
     }
 
-    stage('Trivy Scan') {
+    stage('Push Images & Update GitOps') {
       steps {
-        sh "trivy image ${DOCKERHUB_USR}/frontend:${BUILD_NUMBER} > trivy-frontend.txt"
-        sh "trivy image ${DOCKERHUB_USR}/service1:${BUILD_NUMBER} > trivy-service1.txt"
-        sh "trivy image ${DOCKERHUB_USR}/service2:${BUILD_NUMBER} > trivy-service2.txt"
-      }
-    }
+        sh 'echo $DOCKERHUB_PSW | docker login -u $DOCKERHUB_USR --password-stdin'
+        sh 'docker push myhub/frontend:${BUILD_NUMBER}'
+        sh 'docker push myhub/service1:${BUILD_NUMBER}'
+        sh 'docker push myhub/service2:${BUILD_NUMBER}'
 
-    stage('Push & Cleanup Images') {
-      steps {
-        withCredentials([usernamePassword(credentialsId: 'dockerhub-creds',
-                                          usernameVariable: 'USER',
-                                          passwordVariable: 'PASS')]) {
-          sh 'echo $PASS | docker login -u $USER --password-stdin'
-          sh "docker push ${DOCKERHUB_USR}/frontend:${BUILD_NUMBER}"
-          sh "docker push ${DOCKERHUB_USR}/service1:${BUILD_NUMBER}"
-          sh "docker push ${DOCKERHUB_USR}/service2:${BUILD_NUMBER}"
-          sh "docker image rm ${DOCKERHUB_USR}/frontend:${BUILD_NUMBER}"
-          sh "docker image rm ${DOCKERHUB_USR}/service1:${BUILD_NUMBER}"
-          sh "docker image rm ${DOCKERHUB_USR}/service2:${BUILD_NUMBER}"
-        }
-      }
-    }
-
-    stage('Update GitOps Manifests') {
-      steps {
         dir('gitops/helm-chart') {
-          sh """\
-            sed -i "s/^ *tag:.*/  tag: \\"${BUILD_NUMBER}\\"/" values.yaml
-          """
+          sh '''#!/bin/bash
+            sed -i \
+              -e "s@^\\(\\s*frontend:\\).*@\\1 tag: \\"${BUILD_NUMBER}\\"@" \
+              -e "s@^\\(\\s*service1:\\).*@\\1 tag: \\"${BUILD_NUMBER}\\"@" \
+              -e "s@^\\(\\s*service2:\\).*@\\1 tag: \\"${BUILD_NUMBER}\\"@" \
+              values.yaml
+          '''
         }
-        sshagent([GIT_SSH]) {
-          sh """
-            git add gitops/helm-chart/values.yaml
-            git commit -m "ci: bump image tag to ${BUILD_NUMBER}"
+
+        sshagent(['git-ssh']) {
+          sh '''
+            git add values.yaml
+            git commit -m "ci: bump image tags to ${BUILD_NUMBER}"
             git push origin main
-          """
+          '''
         }
       }
     }
-    // email notification
+
     stage('Notify') {
       steps {
         emailext(
-          to:      'sathwik.shetty@kickdrumtech.com,manav.verma@kickdrumtech.com,yashnitin.thakre@kickdrumtech.com',
-          cc:      'akashkumar.verma@kickdrumtech.com',
-          subject: "Build #${BUILD_NUMBER} Report",
-          body:    "Please find attached the Trivy vulnerability scans.",
+          to: 'sathwik.shetty@kickdrumtech.com,manav.verma@kickdrumtech.com,yashnitin.thakre@kickdrumtech.com,akashkumar.verma@kickdrumtech.com',
+          subject: "Build #${BUILD_NUMBER} ${currentBuild.currentResult}",
+          body: "Console: ${env.BUILD_URL}",
           attachmentsPattern: 'trivy-*.txt'
         )
       }
@@ -127,8 +122,6 @@ pipeline {
   }
 
   post {
-    failure {
-      emailext subject: "Build FAILED #${BUILD_NUMBER}", body: "Check console output", to: 'akashkumar.verma@kickdrumtech.com'
-    }
+    always { archiveArtifacts artifacts: 'trivy-*.txt' }
   }
 }

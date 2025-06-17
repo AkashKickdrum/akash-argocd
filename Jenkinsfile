@@ -6,13 +6,14 @@ pipeline {
   }
 
   environment {
-    GITHUB_CREDS = 'github-creds'
-    SONAR_TOKEN_ID = 'sonar-token'
+    GITHUB_CREDS = 'github-creds'    // your GitHub PAT credential for pushing values.yaml
   }
 
   stages {
     stage('Checkout') {
-      steps { checkout scm }
+      steps {
+        checkout scm
+      }
     }
 
     stage('Build Frontend') {
@@ -49,38 +50,6 @@ pipeline {
       }
     }
 
-    stage('Static Analysis') {
-  steps {
-    script {
-      withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-        sh """
-          # Run analysis for service1
-          docker run --rm --network host \\
-            -v "\$PWD":/usr/src -w /usr/src \\
-            sonarsource/sonar-scanner-cli \\
-            sonar-scanner \\
-              -Dsonar.projectKey=service1 \\
-              -Dsonar.sources=src/backend1 \\
-              -Dsonar.host.url=${env.SONAR_URL} \\
-              -Dsonar.login=${SONAR_TOKEN}
-
-          # Run analysis for service2
-          docker run --rm --network host \\
-            -v "\$PWD":/usr/src -w /usr/src \\
-            sonarsource/sonar-scanner-cli \\
-            sonar-scanner \\
-              -Dsonar.projectKey=service2 \\
-              -Dsonar.sources=src/backend2 \\
-              -Dsonar.host.url=${env.SONAR_URL} \\
-              -Dsonar.login=${SONAR_TOKEN}
-        """
-      }
-    }
-  }
-}
-
-
-
     stage('Security & Tests') {
       parallel {
         stage('OWASP Dependency-Check') {
@@ -105,9 +74,10 @@ pipeline {
           sh "docker build --no-cache -t ${env.DOCKERHUB_USR}/frontend:${tag} src/frontend"
           sh "docker build --no-cache -t ${env.DOCKERHUB_USR}/service1:${tag} src/backend1"
           sh "docker build --no-cache -t ${env.DOCKERHUB_USR}/service2:${tag} src/backend2"
+
           sh "trivy image ${env.DOCKERHUB_USR}/frontend:${tag}  > trivy-frontend.txt"
-          sh "trivy image ${env.DOCKERHUB_USR}/service1:${tag}   > trivy-service1.txt"
-          sh "trivy image ${env.DOCKERHUB_USR}/service2:${tag}   > trivy-service2.txt"
+          sh "trivy image ${env.DOCKERHUB_USR}/service1:${tag}  > trivy-service1.txt"
+          sh "trivy image ${env.DOCKERHUB_USR}/service2:${tag}  > trivy-service2.txt"
         }
       }
     }
@@ -150,7 +120,7 @@ pipeline {
       emailext(
         to:      'sathwik.shetty@kickdrumtech.com,manav.verma@kickdrumtech.com,yashnitin.thakre@kickdrumtech.com,akashkumar.verma@kickdrumtech.com',
         subject: "Build SUCCESS #${env.BUILD_NUMBER}",
-        body:    "✅ Build #${env.BUILD_NUMBER} succeeded!\nConsole: ${env.BUILD_URL}",
+        body:    "✅ Build #${env.BUILD_NUMBER} succeeded!\n${env.BUILD_URL}",
         attachmentsPattern: 'trivy-*.txt'
       )
     }

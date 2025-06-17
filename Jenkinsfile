@@ -2,33 +2,31 @@ pipeline {
   agent any
 
   options {
-    // Skip the implicit checkout so we can do exactly one checkout against 'main'
     skipDefaultCheckout()
   }
 
   environment {
-    SONARQ       = 'SonarQube'      // your SonarQube server ID
-    GITHUB_CREDS = 'github-creds'   // your GitHub PAT credential ID
+    SONARQ       = 'SonarQube'
+    GITHUB_CREDS = 'github-creds'
   }
 
   stages {
     stage('Checkout') {
       steps {
-        // Uses the branch (main) that Multibranch discovered
         checkout scm
       }
     }
 
     stage('Build Frontend') {
       steps {
-        script {
-          // Pull & run inside node:18-alpine
-          docker.image('node:18-alpine').inside('-u root') {
-            dir('src/frontend') {
-              sh 'npm install'
-              sh 'npm run build'
-            }
-          }
+        // Run npm build inside a Docker container via CLI
+        dir('src/frontend') {
+          sh '''
+            docker run --rm -u root \
+              -v "$PWD":/app -w /app \
+              node:18-alpine \
+              sh -c "npm install && npm run build"
+          '''
         }
       }
     }
@@ -94,7 +92,6 @@ pipeline {
 
     stage('Push & Update GitOps') {
       steps {
-        // Log in & push images
         withCredentials([usernamePassword(
           credentialsId: 'dockerhub-creds',
           usernameVariable: 'DOCKERHUB_USR',
@@ -106,7 +103,6 @@ pipeline {
           sh "docker push $DOCKERHUB_USR/service2:${BUILD_NUMBER}"
         }
 
-        // Update Helm values.yaml in gitops folder
         dir('gitops/helm-chart') {
           sh '''#!/bin/bash
             sed -i \
@@ -115,7 +111,6 @@ pipeline {
               -e "s@^\\(\\s*service2:\\).*@\\1 tag: \\"${BUILD_NUMBER}\\"@" \
               values.yaml
           '''
-          // Commit & push with your GitHub PAT
           sshagent([GITHUB_CREDS]) {
             sh '''
               git add values.yaml

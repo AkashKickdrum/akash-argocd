@@ -50,32 +50,38 @@ pipeline {
     }
 
     stage('Static Analysis') {
-      steps {
-        script {
-          withCredentials([string(credentialsId: SONAR_TOKEN_ID, variable: 'SONAR_TOKEN')]) {
-            sh '''
-              docker run --rm --network host \
-                -e SONAR_HOST_URL=http://localhost:9000 \
-                -e SONAR_LOGIN=$SONAR_TOKEN \
-                -v $PWD:/usr/src -w /usr/src \
-                sonarsource/sonar-scanner-cli \
-                sonar-scanner \
-                  -Dsonar.projectKey=service1 \
-                  -Dsonar.sources=src/backend1
+  steps {
+    script {
+      withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+        sh '''
+          # Run scanner with host networking so localhost:9000 is reachable
+          docker run --rm --network host \
+            -e SONAR_HOST_URL=http://localhost:9000 \
+            -e SONAR_LOGIN=$SONAR_TOKEN \
+            -v $PWD:/usr/src -w /usr/src \
+            sonarsource/sonar-scanner-cli \
+            sonar-scanner \
+              -Dsonar.projectKey=service1 \
+              -Dsonar.sources=src/backend1 \
+              -Dsonar.host.url=$SONAR_HOST_URL \
+              -Dsonar.login=$SONAR_LOGIN
 
-              docker run --rm --network host \
-                -e SONAR_HOST_URL=http://localhost:9000 \
-                -e SONAR_LOGIN=$SONAR_TOKEN \
-                -v $PWD:/usr/src -w /usr/src \
-                sonarsource/sonar-scanner-cli \
-                sonar-scanner \
-                  -Dsonar.projectKey=service2 \
-                  -Dsonar.sources=src/backend2
-            '''
-          }
-        }
+          docker run --rm --network host \
+            -e SONAR_HOST_URL=http://localhost:9000 \
+            -e SONAR_LOGIN=$SONAR_TOKEN \
+            -v $PWD:/usr/src -w /usr/src \
+            sonarsource/sonar-scanner-cli \
+            sonar-scanner \
+              -Dsonar.projectKey=service2 \
+              -Dsonar.sources=src/backend2 \
+              -Dsonar.host.url=$SONAR_HOST_URL \
+              -Dsonar.login=$SONAR_LOGIN
+        '''
       }
     }
+  }
+}
+
 
     stage('Security & Tests') {
       parallel {

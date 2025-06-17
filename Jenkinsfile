@@ -6,16 +6,13 @@ pipeline {
   }
 
   environment {
-    SONAR_URL    = 'http://localhost:9000'
-    SONAR_TOKEN_ID = 'sonar-token'
     GITHUB_CREDS = 'github-creds'
+    SONAR_TOKEN_ID = 'sonar-token'
   }
 
   stages {
     stage('Checkout') {
-      steps {
-        checkout scm
-      }
+      steps { checkout scm }
     }
 
     stage('Build Frontend') {
@@ -53,36 +50,32 @@ pipeline {
     }
 
     stage('Static Analysis') {
-  steps {
-    script {
-      withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-        // run sonar-scanner in Docker, sharing the workspace
-        sh '''
-          docker run --rm \
-            -e SONAR_HOST_URL=${SONAR_URL} \
-            -e SONAR_LOGIN=$SONAR_TOKEN \
-            -v $PWD:/usr/src \
-            -w /usr/src \
-            sonarsource/sonar-scanner-cli \
-            sonar-scanner \
-              -Dsonar.projectKey=service1 \
-              -Dsonar.sources=src/backend1
+      steps {
+        script {
+          withCredentials([string(credentialsId: SONAR_TOKEN_ID, variable: 'SONAR_TOKEN')]) {
+            sh '''
+              docker run --rm --network host \
+                -e SONAR_HOST_URL=http://localhost:9000 \
+                -e SONAR_LOGIN=$SONAR_TOKEN \
+                -v $PWD:/usr/src -w /usr/src \
+                sonarsource/sonar-scanner-cli \
+                sonar-scanner \
+                  -Dsonar.projectKey=service1 \
+                  -Dsonar.sources=src/backend1
 
-          docker run --rm \
-            -e SONAR_HOST_URL=${SONAR_URL} \
-            -e SONAR_LOGIN=$SONAR_TOKEN \
-            -v $PWD:/usr/src \
-            -w /usr/src \
-            sonarsource/sonar-scanner-cli \
-            sonar-scanner \
-              -Dsonar.projectKey=service2 \
-              -Dsonar.sources=src/backend2
-        '''
+              docker run --rm --network host \
+                -e SONAR_HOST_URL=http://localhost:9000 \
+                -e SONAR_LOGIN=$SONAR_TOKEN \
+                -v $PWD:/usr/src -w /usr/src \
+                sonarsource/sonar-scanner-cli \
+                sonar-scanner \
+                  -Dsonar.projectKey=service2 \
+                  -Dsonar.sources=src/backend2
+            '''
+          }
+        }
       }
     }
-  }
-}
-
 
     stage('Security & Tests') {
       parallel {

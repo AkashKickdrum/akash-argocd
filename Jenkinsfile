@@ -19,7 +19,6 @@ pipeline {
 
     stage('Build Frontend') {
       steps {
-        // Run npm build inside a Docker container via CLI
         dir('src/frontend') {
           sh '''
             docker run --rm -u root \
@@ -36,6 +35,8 @@ pipeline {
         stage('service-1') {
           steps {
             dir('src/backend1') {
+              // ensure the Gradle wrapper is executable
+              sh 'chmod +x gradlew'
               sh './gradlew clean build'
             }
           }
@@ -43,6 +44,8 @@ pipeline {
         stage('service-2') {
           steps {
             dir('src/backend2') {
+              // ensure the Gradle wrapper is executable
+              sh 'chmod +x gradlew'
               sh './gradlew clean build'
             }
           }

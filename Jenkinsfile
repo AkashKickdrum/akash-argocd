@@ -13,6 +13,7 @@ pipeline {
       steps {
         git(
           url:           'https://github.com/AkashKickdrum/akash-argocd.git',
+          branch:        'main',
           credentialsId: GITHUB_CREDS
         )
       }

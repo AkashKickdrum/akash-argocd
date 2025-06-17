@@ -112,7 +112,7 @@ pipeline {
         }
       }
     }
-
+    // email notification
     stage('Notify') {
       steps {
         emailext(

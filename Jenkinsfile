@@ -6,7 +6,8 @@ pipeline {
   }
 
   environment {
-    SONARQ       = 'SonarQube'
+    SONAR_URL    = 'http://localhost:9000'
+    SONAR_TOKEN_ID = 'sonar-token'
     GITHUB_CREDS = 'github-creds'
   }
 
@@ -35,7 +36,6 @@ pipeline {
         stage('service-1') {
           steps {
             dir('src/backend1') {
-              // ensure the Gradle wrapper is executable
               sh 'chmod +x gradlew'
               sh './gradlew clean build'
             }
@@ -44,7 +44,6 @@ pipeline {
         stage('service-2') {
           steps {
             dir('src/backend2') {
-              // ensure the Gradle wrapper is executable
               sh 'chmod +x gradlew'
               sh './gradlew clean build'
             }
@@ -55,9 +54,20 @@ pipeline {
 
     stage('Static Analysis') {
       steps {
-        withSonarQubeEnv(SONARQ) {
-          sh 'sonar-scanner -Dsonar.projectKey=service1 -Dsonar.sources=src/backend1'
-          sh 'sonar-scanner -Dsonar.projectKey=service2 -Dsonar.sources=src/backend2'
+        withCredentials([string(credentialsId: SONAR_TOKEN_ID, variable: 'SONAR_TOKEN')]) {
+          sh '''
+            sonar-scanner \
+              -Dsonar.projectKey=service1 \
+              -Dsonar.sources=src/backend1 \
+              -Dsonar.host.url=${SONAR_URL} \
+              -Dsonar.login=$SONAR_TOKEN
+
+            sonar-scanner \
+              -Dsonar.projectKey=service2 \
+              -Dsonar.sources=src/backend2 \
+              -Dsonar.host.url=${SONAR_URL} \
+              -Dsonar.login=$SONAR_TOKEN
+          '''
         }
       }
     }

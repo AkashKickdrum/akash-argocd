@@ -2,37 +2,33 @@ pipeline {
   agent any
 
   options {
-    // don’t do the default checkout; we’ll do checkout scm ourselves
+    // Skip the implicit checkout so we can do exactly one checkout against 'main'
     skipDefaultCheckout()
   }
 
   environment {
-    // SonarQube server name in Jenkins
-    SONARQ       = 'SonarQube'
-    // Credential ID for your GitHub PAT (used to push values.yaml)
-    GITHUB_CREDS = 'github-creds'
+    SONARQ       = 'SonarQube'      // your SonarQube server ID
+    GITHUB_CREDS = 'github-creds'   // your GitHub PAT credential ID
   }
 
   stages {
     stage('Checkout') {
       steps {
-        // This uses the branch (main) Multibranch discovered
+        // Uses the branch (main) that Multibranch discovered
         checkout scm
       }
     }
 
     stage('Build Frontend') {
-      // run this stage inside the official Node container
-      agent {
-        docker {
-          image 'node:18-alpine'
-          args  '-u root'  // run as root so npm install can write node_modules
-        }
-      }
       steps {
-        dir('src/frontend') {
-          sh 'npm install'
-          sh 'npm run build'
+        script {
+          // Pull & run inside node:18-alpine
+          docker.image('node:18-alpine').inside('-u root') {
+            dir('src/frontend') {
+              sh 'npm install'
+              sh 'npm run build'
+            }
+          }
         }
       }
     }
@@ -40,7 +36,6 @@ pipeline {
     stage('Build Backends') {
       parallel {
         stage('service-1') {
-          agent { label 'jenkins' }
           steps {
             dir('src/backend1') {
               sh './gradlew clean build'
@@ -48,7 +43,6 @@ pipeline {
           }
         }
         stage('service-2') {
-          agent { label 'jenkins' }
           steps {
             dir('src/backend2') {
               sh './gradlew clean build'
@@ -88,33 +82,31 @@ pipeline {
       steps {
         script {
           def tag = env.BUILD_NUMBER
-          // Build images
-          sh "docker build --no-cache -t \${DOCKERHUB_USR}/frontend:\${tag} src/frontend"
-          sh "docker build --no-cache -t \${DOCKERHUB_USR}/service1:\${tag} src/backend1"
-          sh "docker build --no-cache -t \${DOCKERHUB_USR}/service2:\${tag} src/backend2"
-          // Scan images
-          sh "trivy image \${DOCKERHUB_USR}/frontend:\${tag}  > trivy-frontend.txt"
-          sh "trivy image \${DOCKERHUB_USR}/service1:\${tag}   > trivy-service1.txt"
-          sh "trivy image \${DOCKERHUB_USR}/service2:\${tag}   > trivy-service2.txt"
+          sh "docker build --no-cache -t ${env.DOCKERHUB_USR}/frontend:${tag} src/frontend"
+          sh "docker build --no-cache -t ${env.DOCKERHUB_USR}/service1:${tag} src/backend1"
+          sh "docker build --no-cache -t ${env.DOCKERHUB_USR}/service2:${tag} src/backend2"
+          sh "trivy image ${env.DOCKERHUB_USR}/frontend:${tag}  > trivy-frontend.txt"
+          sh "trivy image ${env.DOCKERHUB_USR}/service1:${tag}   > trivy-service1.txt"
+          sh "trivy image ${env.DOCKERHUB_USR}/service2:${tag}   > trivy-service2.txt"
         }
       }
     }
 
     stage('Push & Update GitOps') {
       steps {
-        // Login & push Docker Hub images
+        // Log in & push images
         withCredentials([usernamePassword(
           credentialsId: 'dockerhub-creds',
           usernameVariable: 'DOCKERHUB_USR',
           passwordVariable: 'DOCKERHUB_PSW'
         )]) {
           sh 'echo $DOCKERHUB_PSW | docker login -u $DOCKERHUB_USR --password-stdin'
-          sh "docker push \$DOCKERHUB_USR/frontend:\$BUILD_NUMBER"
-          sh "docker push \$DOCKERHUB_USR/service1:\$BUILD_NUMBER"
-          sh "docker push \$DOCKERHUB_USR/service2:\$BUILD_NUMBER"
+          sh "docker push $DOCKERHUB_USR/frontend:${BUILD_NUMBER}"
+          sh "docker push $DOCKERHUB_USR/service1:${BUILD_NUMBER}"
+          sh "docker push $DOCKERHUB_USR/service2:${BUILD_NUMBER}"
         }
 
-        // Update Helm values.yaml
+        // Update Helm values.yaml in gitops folder
         dir('gitops/helm-chart') {
           sh '''#!/bin/bash
             sed -i \

@@ -53,24 +53,36 @@ pipeline {
     }
 
     stage('Static Analysis') {
-      steps {
-        withCredentials([string(credentialsId: SONAR_TOKEN_ID, variable: 'SONAR_TOKEN')]) {
-          sh '''
+  steps {
+    script {
+      withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+        // run sonar-scanner in Docker, sharing the workspace
+        sh '''
+          docker run --rm \
+            -e SONAR_HOST_URL=${SONAR_URL} \
+            -e SONAR_LOGIN=$SONAR_TOKEN \
+            -v $PWD:/usr/src \
+            -w /usr/src \
+            sonarsource/sonar-scanner-cli \
             sonar-scanner \
               -Dsonar.projectKey=service1 \
-              -Dsonar.sources=src/backend1 \
-              -Dsonar.host.url=${SONAR_URL} \
-              -Dsonar.login=$SONAR_TOKEN
+              -Dsonar.sources=src/backend1
 
+          docker run --rm \
+            -e SONAR_HOST_URL=${SONAR_URL} \
+            -e SONAR_LOGIN=$SONAR_TOKEN \
+            -v $PWD:/usr/src \
+            -w /usr/src \
+            sonarsource/sonar-scanner-cli \
             sonar-scanner \
               -Dsonar.projectKey=service2 \
-              -Dsonar.sources=src/backend2 \
-              -Dsonar.host.url=${SONAR_URL} \
-              -Dsonar.login=$SONAR_TOKEN
-          '''
-        }
+              -Dsonar.sources=src/backend2
+        '''
       }
     }
+  }
+}
+
 
     stage('Security & Tests') {
       parallel {
